@@ -1,5 +1,5 @@
---// Aim Assist System (Roblox Luau)
--- Place this LocalScript inside StarterPlayerScripts
+--// LEGIT AIM ASSIST with AIM BUTTON (Mobile + PC)
+-- Place in StarterPlayerScripts > LocalScript
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -8,33 +8,61 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
--- Settings
+-- SETTINGS
 local FOV_RADIUS = 80
+local AIM_ASSIST_STRENGTH = 0.25
 local FOV_COLOR = Color3.fromRGB(255, 255, 255)
-local AIM_ASSIST_STRENGTH = 0.2 -- adjust to make aim “stickier”
 
--- Create FOV circle (Drawing API)
-local fovCircle = Drawing.new("Circle")
-fovCircle.Visible = true
-fovCircle.Radius = FOV_RADIUS
-fovCircle.Thickness = 1.5
-fovCircle.Color = FOV_COLOR
-fovCircle.Filled = false
+-- UI setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AimAssistUI"
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+-- FOV circle
+local fovCircle = Instance.new("Frame")
+fovCircle.Name = "FOVCircle"
+fovCircle.Size = UDim2.fromOffset(FOV_RADIUS * 2, FOV_RADIUS * 2)
+fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircle.Position = UDim2.fromScale(0.5, 0.5)
+fovCircle.BorderSizePixel = 2
+fovCircle.BorderColor3 = FOV_COLOR
+fovCircle.BackgroundTransparency = 1
+fovCircle.Parent = screenGui
+
+-- AIM button (for mobile)
+local aimButton = Instance.new("TextButton")
+aimButton.Name = "AimButton"
+aimButton.Text = "🎯 AIM"
+aimButton.Size = UDim2.fromScale(0.18, 0.1)
+aimButton.Position = UDim2.fromScale(0.8, 0.8)
+aimButton.AnchorPoint = Vector2.new(0.5, 0.5)
+aimButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+aimButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+aimButton.TextScaled = true
+aimButton.Visible = UserInputService.TouchEnabled -- chỉ hiện trên mobile
+aimButton.Parent = screenGui
+
+-- Helper: center of screen
+local function getCenter()
+	local viewport = camera.ViewportSize
+	return Vector2.new(viewport.X / 2, viewport.Y / 2)
+end
 
 -- Find closest target in FOV
 local function getClosestPlayer()
+	local center = getCenter()
 	local closest = nil
-	local shortestDistance = math.huge
-	for _, target in pairs(Players:GetPlayers()) do
-		if target ~= player and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-			local root = target.Character.HumanoidRootPart
-			local pos, visible = camera:WorldToViewportPoint(root.Position)
-			if visible then
-				local mousePos = UserInputService:GetMouseLocation()
-				local distance = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-				if distance < FOV_RADIUS and distance < shortestDistance then
-					closest = target
-					shortestDistance = distance
+	local shortest = math.huge
+
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			local root = plr.Character.HumanoidRootPart
+			local pos, onScreen = camera:WorldToViewportPoint(root.Position)
+			if onScreen then
+				local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+				if dist < FOV_RADIUS and dist < shortest then
+					closest = plr
+					shortest = dist
 				end
 			end
 		end
@@ -42,43 +70,66 @@ local function getClosestPlayer()
 	return closest
 end
 
--- Main update loop
-RunService.RenderStepped:Connect(function()
-	-- Update FOV circle position
-	local mousePos = UserInputService:GetMouseLocation()
-	fovCircle.Position = mousePos
-
+-- Highlight enemies in FOV
+local function updateHighlights()
 	local target = getClosestPlayer()
-	if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-		local root = target.Character.HumanoidRootPart
-		-- Optional visual outline
-		if target.Character:FindFirstChildOfClass("Highlight") == nil then
-			local hl = Instance.new("Highlight")
-			hl.Parent = target.Character
-			hl.FillTransparency = 1
-			hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-			hl.OutlineTransparency = 0
-		end
-	else
-		-- Remove highlights if no one in FOV
-		for _, plr in pairs(Players:GetPlayers()) do
-			if plr ~= player and plr.Character and plr.Character:FindFirstChildOfClass("Highlight") then
-				plr.Character:FindFirstChildOfClass("Highlight"):Destroy()
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			local hl = plr.Character:FindFirstChildOfClass("Highlight")
+			if target == plr then
+				if not hl then
+					hl = Instance.new("Highlight")
+					hl.Parent = plr.Character
+					hl.FillTransparency = 1
+					hl.OutlineColor = FOV_COLOR
+					hl.OutlineTransparency = 0
+				end
+			else
+				if hl then hl:Destroy() end
 			end
+		end
+	end
+end
+
+local isAiming = false
+
+-- Main loop
+RunService.RenderStepped:Connect(function()
+	updateHighlights()
+	if isAiming then
+		local target = getClosestPlayer()
+		if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+			local root = target.Character.HumanoidRootPart
+			local newCFrame = camera.CFrame:Lerp(
+				CFrame.lookAt(camera.CFrame.Position, root.Position),
+				AIM_ASSIST_STRENGTH
+			)
+			camera.CFrame = newCFrame
 		end
 	end
 end)
 
--- Example aim assist (optional)
+-- PC: hold right mouse button to aim
 UserInputService.InputBegan:Connect(function(input, gp)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		local target = getClosestPlayer()
-		if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-			local root = target.Character.HumanoidRootPart
-			-- Slightly adjust camera to target
-			local dir = (root.Position - camera.CFrame.Position).Unit
-			local newCFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, root.Position), AIM_ASSIST_STRENGTH)
-			camera.CFrame = newCFrame
-		end
+	if gp then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		isAiming = true
 	end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gp)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		isAiming = false
+	end
+end)
+
+-- Mobile: press and hold the AIM button
+aimButton.MouseButton1Down:Connect(function()
+	isAiming = true
+	aimButton.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+end)
+
+aimButton.MouseButton1Up:Connect(function()
+	isAiming = false
+	aimButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 end)
