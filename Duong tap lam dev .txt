@@ -1,229 +1,164 @@
--- 🌌 Executor Auto Beam v4 – Sci-Fi Glow Edition (Visual only)
--- Tự động bật khi vào game; beam chỉ xuất hiện nếu có người trong FOV 80
--- Hiệu ứng: Beam tím, Highlight mục tiêu, Aura & Glow quanh bạn, âm "lock-on"
--- Chỉ client-side / visual
+-- 🌌 Purple Beam v7 – Glow Button Edition (Visual Only)
+-- 💜 Beam + Aura + Nút tròn phát sáng cho mobile & PC
+-- 📍 Dán vào StarterPlayer > StarterPlayerScripts
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
+local Workspace = game:GetService("Workspace")
 
-local localPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local camera = Workspace.CurrentCamera
 
--- Cấu hình
-local FOV_DEG = 80            -- tổng FOV (độ)
-local MAX_DISTANCE = 200      -- khoảng cách tối đa (studs) để xét mục tiêu
-local BEAM_WIDTH = 0.25
-local BEAM_TEXTURE = "rbxassetid://1302071761"  -- texture plasma
-local LOCK_SOUND_ID = "rbxassetid://9118826693" -- sound khi lock
-local HUM_SOUND_ID = "rbxassetid://9118823106"  -- loop sound cho beam
+-- ⚙️ Cấu hình
+local FOV = 80
+local MAX_DIST = 150
 
--- Các biến quản lý
-local active = true           -- auto-on
+local beamEnabled = false
 local currentTarget = nil
-local highlight, beam, att0, att1, glowPoint, loopSound = nil, nil, nil, nil, nil, nil
-local auraEmitter = nil
+local beam, att0, att1, aura, glowLight, highlight
 
--- Tạo aura + glow cho chính người chơi (visual)
-local function createLocalAura()
-	local char = localPlayer.Character
-	if not char then return end
-	local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
-	if not root then return end
+-- 🟣 GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "PurpleBeamGUI"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
 
-	-- PointLight (glow nhẹ)
-	if not glowPoint or not glowPoint.Parent then
-		glowPoint = Instance.new("PointLight")
-		glowPoint.Color = Color3.fromRGB(200,150,255)
-		glowPoint.Range = 10
-		glowPoint.Brightness = 1.6
-		glowPoint.Parent = root
+-- 🌸 Nút tròn phát sáng
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 100, 0, 100)
+toggleBtn.Position = UDim2.new(0.8, 0, 0.7, 0)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(130, 0, 255)
+toggleBtn.Text = "⚡"
+toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 40
+toggleBtn.Draggable = true
+toggleBtn.Active = true
+toggleBtn.Parent = gui
+
+local corner = Instance.new("UICorner", toggleBtn)
+corner.CornerRadius = UDim.new(1, 0)
+
+-- 🟪 Hiệu ứng phát sáng tím
+local uiStroke = Instance.new("UIStroke", toggleBtn)
+uiStroke.Thickness = 3
+uiStroke.Color = Color3.fromRGB(200, 150, 255)
+uiStroke.Transparency = 0.4
+
+-- Hiệu ứng sáng nhấp nháy
+task.spawn(function()
+	while task.wait(0.1) do
+		if beamEnabled then
+			uiStroke.Transparency = math.random(20, 60) / 100
+		else
+			uiStroke.Transparency = 0.4
+		end
+	end
+end)
+
+-- 🟣 Aura tím quanh người
+local function createAura()
+	local char = player.Character or player.CharacterAdded:Wait()
+	local root = char:WaitForChild("HumanoidRootPart")
+
+	if not glowLight then
+		glowLight = Instance.new("PointLight", root)
+		glowLight.Color = Color3.fromRGB(200,150,255)
+		glowLight.Range = 10
+		glowLight.Brightness = 1.8
 	end
 
-	-- ParticleEmitter (aura tĩnh, locked to part)
-	if not auraEmitter or not auraEmitter.Parent then
-		auraEmitter = Instance.new("ParticleEmitter")
-		auraEmitter.Name = "PurpleAuraEmitter"
-		auraEmitter.Texture = "rbxassetid://6971861639"
-		auraEmitter.Color = ColorSequence.new(Color3.fromRGB(180,100,255), Color3.fromRGB(255,200,255))
-		auraEmitter.LightEmission = 1
-		auraEmitter.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 3)})
-		auraEmitter.Rate = 12
-		auraEmitter.Lifetime = NumberRange.new(0.8, 1.2)
-		auraEmitter.Speed = NumberRange.new(0)
-		auraEmitter.Rotation = NumberRange.new(0, 360)
-		auraEmitter.RotSpeed = NumberRange.new(0)
-		auraEmitter.LockedToPart = true
-		auraEmitter.Transparency = NumberSequence.new(0.3)
-		auraEmitter.Parent = root
+	if not aura then
+		aura = Instance.new("ParticleEmitter", root)
+		aura.Texture = "rbxassetid://6971861639"
+		aura.Color = ColorSequence.new(Color3.fromRGB(180,100,255), Color3.fromRGB(255,200,255))
+		aura.Size = NumberSequence.new(2)
+		aura.LightEmission = 1
+		aura.Rate = 10
+		aura.Speed = NumberRange.new(0)
+		aura.Lifetime = NumberRange.new(1)
+		aura.LockedToPart = true
 	end
 end
 
-local function destroyLocalAura()
-	if auraEmitter then auraEmitter:Destroy(); auraEmitter = nil end
-	if glowPoint then glowPoint:Destroy(); glowPoint = nil end
-end
-
--- Helper: tìm người gần nhất trong FOV và khoảng cách
-local function getClosestInFOV(totalFovDeg, maxDist)
-	local camCFrame = Camera.CFrame
-	local camPos = camCFrame.Position
-	local camForward = camCFrame.LookVector
-
-	local nearest, nearestDist = nil, math.huge
-	for _, p in pairs(Players:GetPlayers()) do
-		if p ~= localPlayer and p.Character and p.Character:FindFirstChild("Head") then
-			local head = p.Character.Head
-			local dir = head.Position - camPos
-			local dist = dir.Magnitude
-			if dist <= (maxDist or math.huge) then
-				-- tính góc giữa camera forward và vector tới head
-				local dot = camForward:Dot(dir.Unit)
-				local angle = math.deg(math.acos(math.clamp(dot, -1, 1)))
-				if angle <= totalFovDeg/2 then
-					if dist < nearestDist then
-						nearestDist = dist
-						nearest = p
+-- 🎯 Tìm NPC gần nhất trong FOV
+local function getClosestInFOV()
+	local closest, minDist = nil, math.huge
+	for _, model in ipairs(Workspace:GetChildren()) do
+		if model:IsA("Model") and model:FindFirstChild("Humanoid") and model:FindFirstChild("Head") then
+			if model ~= player.Character then
+				local head = model.Head
+				local dir = (head.Position - camera.CFrame.Position)
+				local angle = math.deg(math.acos(camera.CFrame.LookVector:Dot(dir.Unit)))
+				if angle <= FOV then
+					local dist = dir.Magnitude
+					if dist < minDist and dist < MAX_DIST then
+						minDist = dist
+						closest = model
 					end
 				end
 			end
 		end
 	end
-	return nearest, nearestDist
+	return closest
 end
 
--- Tạo hiệu ứng beam & highlight khi lock mục tiêu
-local function createLockEffects(targetPlayer)
-	-- cleanup trước
-	if highlight then highlight:Destroy(); highlight = nil end
-	if beam then beam:Destroy(); beam = nil end
-	if att0 then att0:Destroy(); att0 = nil end
-	if att1 then att1:Destroy(); att1 = nil end
-	if loopSound then loopSound:Destroy(); loopSound = nil end
+-- ⚡ Toggle Beam
+local function toggleBeam()
+	beamEnabled = not beamEnabled
+	toggleBtn.BackgroundColor3 = beamEnabled and Color3.fromRGB(170, 60, 255) or Color3.fromRGB(130, 0, 255)
 
-	if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("Head") then return end
-	local myChar = localPlayer.Character
-	if not myChar then return end
-	local myHead = myChar:FindFirstChild("Head")
-	if not myHead then return end
-	local targetHead = targetPlayer.Character.Head
-
-	-- Highlight (visual)
-	highlight = Instance.new("Highlight")
-	highlight.Adornee = targetPlayer.Character
-	highlight.FillColor = Color3.fromRGB(180,100,255)
-	highlight.FillTransparency = 0.5
-	highlight.OutlineColor = Color3.fromRGB(255,255,255)
-	highlight.Parent = targetPlayer.Character
-
-	-- Attachments & Beam
-	att0 = Instance.new("Attachment", myHead)
-	att1 = Instance.new("Attachment", targetHead)
-
-	beam = Instance.new("Beam")
-	beam.Attachment0 = att0
-	beam.Attachment1 = att1
-	beam.Color = ColorSequence.new(Color3.fromRGB(180,100,255), Color3.fromRGB(255,200,255))
-	beam.LightEmission = 0.9
-	beam.Width0 = BEAM_WIDTH
-	beam.Width1 = BEAM_WIDTH
-	beam.Texture = BEAM_TEXTURE
-	beam.TextureSpeed = 2
-	beam.TextureLength = 4
-	beam.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,0), NumberSequenceKeypoint.new(1,0.35)})
-	beam.FaceCamera = true
-	beam.Segments = 15
-	beam.CurveSize0 = 0.4
-	beam.CurveSize1 = 0.4
-	beam.Parent = myHead
-
-	-- loop hum sound on player head (client-only)
-	loopSound = Instance.new("Sound", myHead)
-	loopSound.SoundId = HUM_SOUND_ID
-	loopSound.Volume = 0.7
-	loopSound.Looped = true
-	-- pcall để tránh lỗi nếu asset bị block
-	pcall(function() loopSound:Play() end)
-end
-
-local function destroyLockEffects()
-	if highlight then highlight:Destroy(); highlight = nil end
-	if beam then beam:Destroy(); beam = nil end
-	if att0 then att0:Destroy(); att0 = nil end
-	if att1 then att1:Destroy(); att1 = nil end
-	if loopSound then loopSound:Stop(); loopSound:Destroy(); loopSound = nil end
-end
-
--- Phát âm khi lock thành công
-local function playLockSound()
-	local s = Instance.new("Sound")
-	s.SoundId = LOCK_SOUND_ID
-	s.Volume = 0.8
-	s.Parent = workspace:GetService("SoundService") or workspace
-	pcall(function() s:Play() end)
-	game:GetService("Debris"):AddItem(s, 2)
-end
-
--- Main loop: tự động tìm & lock
-RunService.RenderStepped:Connect(function()
-	if not active then return end
-	-- đảm bảo aura tồn tại
-	if not auraEmitter or not auraEmitter.Parent then
-		createLocalAura()
-	end
-
-	-- tìm mục tiêu gần nhất trong FOV
-	local target = getClosestInFOV(FOV_DEG, MAX_DISTANCE)
-	if target then
-		-- nếu mục tiêu thay đổi
-		if currentTarget ~= target then
-			-- tạo hiệu ứng lock mới
-			currentTarget = target
-			destroyLockEffects()
-			createLockEffects(target)
-			playLockSound()
-		else
-			-- nếu cùng mục tiêu, kiểm tra target còn hợp lệ
-			if not target.Character or not target.Character:FindFirstChild("Head") then
-				currentTarget = nil
-				destroyLockEffects()
-			end
+	if not beamEnabled then
+		for _, v in ipairs({beam, att0, att1, highlight}) do
+			if v then v:Destroy() end
 		end
-	else
-		-- không có mục tiêu → xóa hiệu ứng lock hiện có
-		if currentTarget then
-			currentTarget = nil
-			destroyLockEffects()
-		end
-	end
-end)
-
--- Cleanup & reattach aura when character spawns / respawns
-local function onCharacterAdded(char)
-	-- chờ head/root
-	task.delay(0.15, function()
-		destroyLockEffects()
-		destroyLocalAura()
-		createLocalAura()
-	end)
-end
-
-local function onPlayerRemoving(pl)
-	if pl == currentTarget then
 		currentTarget = nil
-		destroyLockEffects()
 	end
 end
 
-localPlayer.CharacterAdded:Connect(onCharacterAdded)
-Players.PlayerRemoving:Connect(onPlayerRemoving)
+toggleBtn.MouseButton1Click:Connect(toggleBeam)
 
--- Initial: nếu có character sẵn, tạo aura
-if localPlayer.Character then
-	createLocalAura()
-end
+-- 🔮 Cập nhật beam
+RunService.RenderStepped:Connect(function()
+	if not beamEnabled then return end
+	createAura()
 
--- Khi tắt script (ví dụ thoát), dọn dẹp
-game:BindToClose(function()
-	destroyLockEffects()
-	destroyLocalAura()
+	local target = getClosestInFOV()
+	local char = player.Character
+	if not char or not char:FindFirstChild("Head") then return end
+	local head = char.Head
+
+	if target ~= currentTarget then
+		for _, v in ipairs({beam, att0, att1, highlight}) do
+			if v then v:Destroy() end
+		end
+		currentTarget = target
+
+		if target and target:FindFirstChild("Head") then
+			local targetHead = target.Head
+
+			-- Highlight tím
+			highlight = Instance.new("Highlight")
+			highlight.Adornee = target
+			highlight.FillColor = Color3.fromRGB(180,100,255)
+			highlight.FillTransparency = 0.5
+			highlight.OutlineColor = Color3.new(1,1,1)
+			highlight.Parent = target
+
+			-- Beam giữa 2 người
+			att0 = Instance.new("Attachment", head)
+			att1 = Instance.new("Attachment", targetHead)
+			beam = Instance.new("Beam")
+			beam.Attachment0 = att0
+			beam.Attachment1 = att1
+			beam.Color = ColorSequence.new(Color3.fromRGB(180,100,255), Color3.fromRGB(255,200,255))
+			beam.LightEmission = 0.8
+			beam.Width0 = 0.25
+			beam.Width1 = 0.25
+			beam.Texture = "rbxassetid://1302071761"
+			beam.TextureSpeed = 2
+			beam.TextureLength = 4
+			beam.Parent = head
+		end
+	end
 end)
