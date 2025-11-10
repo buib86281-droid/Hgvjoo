@@ -1,5 +1,5 @@
---// LEGIT AIM ASSIST with AIM BUTTON (Mobile + PC)
--- Place in StarterPlayerScripts > LocalScript
+--// AUTO AIM STRONG (PC + Mobile)
+-- Place inside StarterPlayerScripts > LocalScript
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -9,16 +9,15 @@ local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 -- SETTINGS
-local FOV_RADIUS = 80
-local AIM_ASSIST_STRENGTH = 0.25
+local FOV_RADIUS = 100 -- tăng FOV
+local AIM_STRENGTH = 27 -- 1 = aim mạnh nhất
 local FOV_COLOR = Color3.fromRGB(255, 255, 255)
 
--- UI setup
+-- UI setup (vòng tròn FOV)
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AimAssistUI"
+screenGui.Name = "FOV_UI"
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
--- FOV circle
 local fovCircle = Instance.new("Frame")
 fovCircle.Name = "FOVCircle"
 fovCircle.Size = UDim2.fromOffset(FOV_RADIUS * 2, FOV_RADIUS * 2)
@@ -29,20 +28,7 @@ fovCircle.BorderColor3 = FOV_COLOR
 fovCircle.BackgroundTransparency = 1
 fovCircle.Parent = screenGui
 
--- AIM button (for mobile)
-local aimButton = Instance.new("TextButton")
-aimButton.Name = "AimButton"
-aimButton.Text = "🎯 AIM"
-aimButton.Size = UDim2.fromScale(0.18, 0.1)
-aimButton.Position = UDim2.fromScale(0.8, 0.8)
-aimButton.AnchorPoint = Vector2.new(0.5, 0.5)
-aimButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-aimButton.TextColor3 = Color3.fromRGB(0, 0, 0)
-aimButton.TextScaled = true
-aimButton.Visible = UserInputService.TouchEnabled -- chỉ hiện trên mobile
-aimButton.Parent = screenGui
-
--- Helper: center of screen
+-- Get screen center (mobile & PC)
 local function getCenter()
 	local viewport = camera.ViewportSize
 	return Vector2.new(viewport.X / 2, viewport.Y / 2)
@@ -51,14 +37,14 @@ end
 -- Find closest target in FOV
 local function getClosestPlayer()
 	local center = getCenter()
-	local closest = nil
+	local closest
 	local shortest = math.huge
 
 	for _, plr in pairs(Players:GetPlayers()) do
 		if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
 			local root = plr.Character.HumanoidRootPart
-			local pos, onScreen = camera:WorldToViewportPoint(root.Position)
-			if onScreen then
+			local pos, visible = camera:WorldToViewportPoint(root.Position)
+			if visible then
 				local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
 				if dist < FOV_RADIUS and dist < shortest then
 					closest = plr
@@ -70,8 +56,8 @@ local function getClosestPlayer()
 	return closest
 end
 
--- Highlight enemies in FOV
-local function updateHighlights()
+-- Highlight target in FOV
+local function highlightTarget()
 	local target = getClosestPlayer()
 	for _, plr in pairs(Players:GetPlayers()) do
 		if plr ~= player and plr.Character then
@@ -84,52 +70,23 @@ local function updateHighlights()
 					hl.OutlineColor = FOV_COLOR
 					hl.OutlineTransparency = 0
 				end
-			else
-				if hl then hl:Destroy() end
+			elseif hl then
+				hl:Destroy()
 			end
 		end
 	end
 end
 
-local isAiming = false
+RunService.RenderStepped:Connect(highlightTarget)
 
--- Main loop
-RunService.RenderStepped:Connect(function()
-	updateHighlights()
-	if isAiming then
+-- Khi người chơi ấn bắn (chuột hoặc chạm màn hình)
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		local target = getClosestPlayer()
 		if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
 			local root = target.Character.HumanoidRootPart
-			local newCFrame = camera.CFrame:Lerp(
-				CFrame.lookAt(camera.CFrame.Position, root.Position),
-				AIM_ASSIST_STRENGTH
-			)
-			camera.CFrame = newCFrame
+			camera.CFrame = CFrame.lookAt(camera.CFrame.Position, root.Position)
 		end
 	end
-end)
-
--- PC: hold right mouse button to aim
-UserInputService.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	if input.UserInputType == Enum.UserInputType.MouseButton2 then
-		isAiming = true
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input, gp)
-	if input.UserInputType == Enum.UserInputType.MouseButton2 then
-		isAiming = false
-	end
-end)
-
--- Mobile: press and hold the AIM button
-aimButton.MouseButton1Down:Connect(function()
-	isAiming = true
-	aimButton.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
-end)
-
-aimButton.MouseButton1Up:Connect(function()
-	isAiming = false
-	aimButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 end)
