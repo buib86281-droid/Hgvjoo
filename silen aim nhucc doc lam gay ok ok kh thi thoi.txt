@@ -1,5 +1,5 @@
---// AIM TOGGLE BUTTON (PC + Mobile)
--- Based on your auto aim code
+--// LOCK-ON AIM (PC + Mobile)
+-- Click once to lock, click again to unlock
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -10,12 +10,12 @@ local camera = workspace.CurrentCamera
 
 -- SETTINGS
 local FOV_RADIUS = 100
-local AIM_STRENGTH = 999 -- 0.5 = mạnh vừa, 1 = cực mạnh
 local FOV_COLOR = Color3.fromRGB(255, 255, 255)
+local CAMERA_LOCK_SPEED = 0.3 -- càng cao càng nhanh
 
 -- UI setup
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "FOV_UI"
+screenGui.Name = "LockOnUI"
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
 -- FOV circle
@@ -29,28 +29,28 @@ fovCircle.BorderColor3 = FOV_COLOR
 fovCircle.BackgroundTransparency = 1
 fovCircle.Parent = screenGui
 
--- AIM button
+-- AIM toggle button
 local aimButton = Instance.new("TextButton")
 aimButton.Name = "AimToggleButton"
 aimButton.Size = UDim2.fromScale(0.18, 0.1)
 aimButton.Position = UDim2.fromScale(0.85, 0.8)
 aimButton.AnchorPoint = Vector2.new(0.5, 0.5)
-aimButton.Text = "🎯 AIM: OFF"
+aimButton.Text = "🎯 LOCK: OFF"
 aimButton.TextScaled = true
 aimButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 aimButton.TextColor3 = Color3.fromRGB(0, 0, 0)
-aimButton.Visible = true
 aimButton.Parent = screenGui
 
-local aiming = false
+-- Variables
+local lockedTarget = nil
 
--- Center of screen
+-- Get center of screen
 local function getCenter()
 	local viewport = camera.ViewportSize
 	return Vector2.new(viewport.X / 2, viewport.Y / 2)
 end
 
--- Find closest target in FOV
+-- Find closest player within FOV
 local function getClosestPlayer()
 	local center = getCenter()
 	local closest
@@ -73,18 +73,17 @@ local function getClosestPlayer()
 end
 
 -- Highlight target
-local function highlightTarget()
-	local target = getClosestPlayer()
+local function updateHighlights(target)
 	for _, plr in pairs(Players:GetPlayers()) do
 		if plr ~= player and plr.Character then
 			local hl = plr.Character:FindFirstChildOfClass("Highlight")
-			if target == plr then
+			if plr == target then
 				if not hl then
 					hl = Instance.new("Highlight")
-					hl.Parent = plr.Character
 					hl.FillTransparency = 1
-					hl.OutlineColor = FOV_COLOR
 					hl.OutlineTransparency = 0
+					hl.OutlineColor = FOV_COLOR
+					hl.Parent = plr.Character
 				end
 			elseif hl then
 				hl:Destroy()
@@ -93,42 +92,39 @@ local function highlightTarget()
 	end
 end
 
--- Update loop
+-- Update camera lock
 RunService.RenderStepped:Connect(function()
-	highlightTarget()
+	if lockedTarget and lockedTarget.Character and lockedTarget.Character:FindFirstChild("HumanoidRootPart") then
+		local root = lockedTarget.Character.HumanoidRootPart
+		camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, root.Position), CAMERA_LOCK_SPEED)
+	else
+		lockedTarget = nil
+	end
+	updateHighlights(lockedTarget)
+end)
 
-	if aiming then
+-- Button pressed
+aimButton.MouseButton1Click:Connect(function()
+	if lockedTarget then
+		-- Unlock
+		lockedTarget = nil
+		aimButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		aimButton.Text = "🎯 LOCK: OFF"
+	else
+		-- Try lock
 		local target = getClosestPlayer()
-		if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-			local root = target.Character.HumanoidRootPart
-			camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, root.Position), AIM_STRENGTH)
+		if target then
+			lockedTarget = target
+			aimButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+			aimButton.Text = "🎯 LOCK: ON"
 		end
 	end
 end)
 
--- Toggle aim when pressing button (mobile/PC)
-aimButton.MouseButton1Click:Connect(function()
-	aiming = not aiming
-	if aiming then
-		aimButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-		aimButton.Text = "🎯 AIM: ON"
-	else
-		aimButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-		aimButton.Text = "🎯 AIM: OFF"
-	end
-end)
-
--- Optional: Toggle with keyboard (for PC)
+-- Optional: Toggle with keyboard (E key on PC)
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.E then
-		aiming = not aiming
-		if aiming then
-			aimButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-			aimButton.Text = "🎯 AIM: ON"
-		else
-			aimButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			aimButton.Text = "🎯 AIM: OFF"
-		end
+		aimButton:Activate()
 	end
 end)
