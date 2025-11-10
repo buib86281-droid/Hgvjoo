@@ -1,0 +1,84 @@
+--// Aim Assist System (Roblox Luau)
+-- Place this LocalScript inside StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- Settings
+local FOV_RADIUS = 80
+local FOV_COLOR = Color3.fromRGB(255, 255, 255)
+local AIM_ASSIST_STRENGTH = 0.2 -- adjust to make aim “stickier”
+
+-- Create FOV circle (Drawing API)
+local fovCircle = Drawing.new("Circle")
+fovCircle.Visible = true
+fovCircle.Radius = FOV_RADIUS
+fovCircle.Thickness = 1.5
+fovCircle.Color = FOV_COLOR
+fovCircle.Filled = false
+
+-- Find closest target in FOV
+local function getClosestPlayer()
+	local closest = nil
+	local shortestDistance = math.huge
+	for _, target in pairs(Players:GetPlayers()) do
+		if target ~= player and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+			local root = target.Character.HumanoidRootPart
+			local pos, visible = camera:WorldToViewportPoint(root.Position)
+			if visible then
+				local mousePos = UserInputService:GetMouseLocation()
+				local distance = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+				if distance < FOV_RADIUS and distance < shortestDistance then
+					closest = target
+					shortestDistance = distance
+				end
+			end
+		end
+	end
+	return closest
+end
+
+-- Main update loop
+RunService.RenderStepped:Connect(function()
+	-- Update FOV circle position
+	local mousePos = UserInputService:GetMouseLocation()
+	fovCircle.Position = mousePos
+
+	local target = getClosestPlayer()
+	if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+		local root = target.Character.HumanoidRootPart
+		-- Optional visual outline
+		if target.Character:FindFirstChildOfClass("Highlight") == nil then
+			local hl = Instance.new("Highlight")
+			hl.Parent = target.Character
+			hl.FillTransparency = 1
+			hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+			hl.OutlineTransparency = 0
+		end
+	else
+		-- Remove highlights if no one in FOV
+		for _, plr in pairs(Players:GetPlayers()) do
+			if plr ~= player and plr.Character and plr.Character:FindFirstChildOfClass("Highlight") then
+				plr.Character:FindFirstChildOfClass("Highlight"):Destroy()
+			end
+		end
+	end
+end)
+
+-- Example aim assist (optional)
+UserInputService.InputBegan:Connect(function(input, gp)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local target = getClosestPlayer()
+		if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+			local root = target.Character.HumanoidRootPart
+			-- Slightly adjust camera to target
+			local dir = (root.Position - camera.CFrame.Position).Unit
+			local newCFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, root.Position), AIM_ASSIST_STRENGTH)
+			camera.CFrame = newCFrame
+		end
+	end
+end)
