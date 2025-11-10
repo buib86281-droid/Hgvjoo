@@ -1,6 +1,7 @@
--- 🌌 Purple Beam Tracker v11 – Aura Edition (Visual Only)
--- 💜 Hiệu ứng beam tím + aura plasma quanh người (chỉ là visual, không tác động người khác)
--- 👨‍💻 Tác giả: DuongNigger
+-- 🌌 Purple Beam Tracker v12 – Lock Mode (Visual Only)
+-- 💜 Beam tím tự động ghim người gần nhất trong FOV, bám theo cho tới khi ra khỏi phạm vi
+-- 👨‍💻 Tác giả: C
+Nigger
 
 local player = game.Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -8,7 +9,7 @@ local runService = game:GetService("RunService")
 
 -- GUI chính
 local gui = Instance.new("ScreenGui")
-gui.Name = "PurpleBeamAuraV11"
+gui.Name = "PurpleBeamAuraV12"
 gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
@@ -29,8 +30,8 @@ corner.CornerRadius = UDim.new(0, 8)
 
 -- Label hiển thị tên người bị “pin”
 local nameLabel = Instance.new("TextLabel")
-nameLabel.Size = UDim2.new(0, 220, 0, 30)
-nameLabel.Position = UDim2.new(0.5, -110, 0.1, 0)
+nameLabel.Size = UDim2.new(0, 240, 0, 30)
+nameLabel.Position = UDim2.new(0.5, -120, 0.1, 0)
 nameLabel.BackgroundTransparency = 1
 nameLabel.TextColor3 = Color3.fromRGB(200, 160, 255)
 nameLabel.Font = Enum.Font.GothamSemibold
@@ -40,10 +41,10 @@ nameLabel.Parent = gui
 
 -- Biến điều khiển
 local beamEnabled = false
-local currentTarget = nil
+local lockedTarget = nil
 local highlight, beam, attachment0, attachment1, glowLight, beamSound, aura = nil, nil, nil, nil, nil, nil, nil
 
--- Toggle
+-- Toggle Beam
 local function toggleBeam()
 	beamEnabled = not beamEnabled
 	toggleBtn.Text = beamEnabled and "⚡ Beam: ON" or "⚡ Beam: OFF"
@@ -54,12 +55,13 @@ local function toggleBeam()
 			if v then v:Destroy() end
 		end
 		nameLabel.Text = ""
+		lockedTarget = nil
 	end
 end
 
 toggleBtn.MouseButton1Click:Connect(toggleBeam)
 
--- Hàm tìm người chơi gần nhất trong FOV
+-- Tìm người chơi gần nhất trong FOV
 local function getClosestInFOV(fov)
 	local closest = nil
 	local minDist = math.huge
@@ -80,90 +82,97 @@ local function getClosestInFOV(fov)
 	return closest
 end
 
--- Cập nhật beam + aura
+-- Cập nhật beam
 runService.RenderStepped:Connect(function()
 	if not beamEnabled then return end
 
-	local target = getClosestInFOV(80)
-	if target ~= currentTarget then
-		for _, v in ipairs({highlight, beam, glowLight, beamSound, aura}) do
+	local head = player.Character and player.Character:FindFirstChild("Head")
+	if not head then return end
+
+	-- Nếu chưa có mục tiêu hoặc mục tiêu không hợp lệ → tìm mới
+	if not lockedTarget or not lockedTarget.Character or not lockedTarget.Character:FindFirstChild("Head") then
+		for _, v in ipairs({highlight, beam, glowLight, beamSound}) do
 			if v then v:Destroy() end
 		end
-
-		currentTarget = target
-		if target and target.Character and target.Character:FindFirstChild("Head") then
-			local head = player.Character and player.Character:FindFirstChild("Head")
-			if not head then return end
-
-			-- Highlight
-			highlight = Instance.new("Highlight")
-			highlight.FillColor = Color3.fromRGB(180, 100, 255)
-			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-			highlight.FillTransparency = 0.5
-			highlight.Adornee = target.Character
-			highlight.Parent = target.Character
-
-			-- Beam
-			local targetHead = target.Character.Head
-			attachment0 = Instance.new("Attachment", head)
-			attachment1 = Instance.new("Attachment", targetHead)
-
-			beam = Instance.new("Beam")
-			beam.Attachment0 = attachment0
-			beam.Attachment1 = attachment1
-			beam.Color = ColorSequence.new(Color3.fromRGB(180, 100, 255), Color3.fromRGB(255, 200, 255))
-			beam.LightEmission = 0.8
-			beam.Width0 = 0.25
-			beam.Width1 = 0.25
-			beam.Texture = "rbxassetid://1302071761"
-			beam.TextureSpeed = 2
-			beam.TextureLength = 4
-			beam.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0),
-				NumberSequenceKeypoint.new(1, 0.4)
-			})
-			beam.Parent = head
-
-			-- Glow
-			glowLight = Instance.new("PointLight", head)
-			glowLight.Color = Color3.fromRGB(200, 150, 255)
-			glowLight.Range = 12
-			glowLight.Brightness = 2
-
-			-- Sound
-			beamSound = Instance.new("Sound", head)
-			beamSound.SoundId = "rbxassetid://9118823106"
-			beamSound.Volume = 0.8
-			beamSound.Looped = true
-			beamSound:Play()
-
-			-- Aura tím xoay quanh thân
-			local torso = player.Character:FindFirstChild("HumanoidRootPart")
-			if torso then
-				aura = Instance.new("ParticleEmitter", torso)
-				aura.Texture = "rbxassetid://6971861639" -- vòng plasma mềm
-				aura.Color = ColorSequence.new(Color3.fromRGB(180, 100, 255), Color3.fromRGB(255, 200, 255))
-				aura.LightEmission = 1
-				aura.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 3)})
-				aura.Rate = 15
-				aura.Lifetime = NumberRange.new(1)
-				aura.Speed = NumberRange.new(0)
-				aura.Rotation = NumberRange.new(0, 360)
-				aura.RotSpeed = NumberRange.new(30)
-				aura.LockedToPart = true
-				aura.Transparency = NumberSequence.new(0.3)
-			end
-
-			nameLabel.Text = "🎯 " .. target.DisplayName
-
-			-- Âm khóa mục tiêu
-			local lockSound = Instance.new("Sound", head)
-			lockSound.SoundId = "rbxassetid://9118826693"
-			lockSound.Volume = 0.6
-			lockSound:Play()
-			game.Debris:AddItem(lockSound, 2)
-		else
+		lockedTarget = getClosestInFOV(80)
+		if not lockedTarget then
 			nameLabel.Text = ""
+			return
 		end
+
+		-- Ghim target mới
+		local targetHead = lockedTarget.Character.Head
+
+		highlight = Instance.new("Highlight")
+		highlight.FillColor = Color3.fromRGB(180, 100, 255)
+		highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+		highlight.FillTransparency = 0.4
+		highlight.Adornee = lockedTarget.Character
+		highlight.Parent = lockedTarget.Character
+
+		attachment0 = Instance.new("Attachment", head)
+		attachment1 = Instance.new("Attachment", targetHead)
+
+		beam = Instance.new("Beam")
+		beam.Attachment0 = attachment0
+		beam.Attachment1 = attachment1
+		beam.Color = ColorSequence.new(Color3.fromRGB(180, 100, 255), Color3.fromRGB(255, 200, 255))
+		beam.LightEmission = 0.8
+		beam.Width0 = 0.25
+		beam.Width1 = 0.25
+		beam.Texture = "rbxassetid://1302071761"
+		beam.TextureSpeed = 2
+		beam.TextureLength = 4
+		beam.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(1, 0.4)
+		})
+		beam.Parent = head
+
+		glowLight = Instance.new("PointLight", head)
+		glowLight.Color = Color3.fromRGB(200, 150, 255)
+		glowLight.Range = 12
+		glowLight.Brightness = 2
+
+		beamSound = Instance.new("Sound", head)
+		beamSound.SoundId = "rbxassetid://9118823106"
+		beamSound.Volume = 0.8
+		beamSound.Looped = true
+		beamSound:Play()
+
+		nameLabel.Text = "🎯 Đang ghim: " .. lockedTarget.DisplayName
+		nameLabel.TextColor3 = Color3.fromRGB(255, 200, 255)
+	end
+
+	-- Kiểm tra xem mục tiêu còn trong phạm vi không
+	local dir = (lockedTarget.Character.Head.Position - camera.CFrame.Position)
+	local angle = math.deg(math.acos(camera.CFrame.LookVector:Dot(dir.Unit)))
+	if angle > 80 or dir.Magnitude > 200 then
+		for _, v in ipairs({highlight, beam, glowLight, beamSound}) do
+			if v then v:Destroy() end
+		end
+		lockedTarget = nil
+		nameLabel.Text = ""
+	end
+end)
+
+-- Aura tím quanh người
+player.CharacterAdded:Connect(function(char)
+	char:WaitForChild("HumanoidRootPart")
+	task.wait(1)
+	local torso = char:FindFirstChild("HumanoidRootPart")
+	if torso then
+		aura = Instance.new("ParticleEmitter", torso)
+		aura.Texture = "rbxassetid://6971861639"
+		aura.Color = ColorSequence.new(Color3.fromRGB(180, 100, 255), Color3.fromRGB(255, 200, 255))
+		aura.LightEmission = 1
+		aura.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 3)})
+		aura.Rate = 15
+		aura.Lifetime = NumberRange.new(1)
+		aura.Speed = NumberRange.new(0)
+		aura.Rotation = NumberRange.new(0, 360)
+		aura.RotSpeed = NumberRange.new(30)
+		aura.LockedToPart = true
+		aura.Transparency = NumberSequence.new(0.3)
 	end
 end)
